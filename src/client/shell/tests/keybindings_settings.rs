@@ -965,3 +965,119 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
     assert!(state.handle_input_bytes(b"\r").actions.is_empty());
     assert_eq!(state.mode, ClientShellMode::Terminal);
 }
+
+#[test]
+fn hide_tab_bar_hides_desktop_tab_row_with_multiple_tabs_and_preserves_mode_bar() {
+    let mut cfg = Config::default();
+    cfg.ui.hide_tab_bar = true;
+    cfg.ui.tab_bar_position = crate::config::TabBarPositionConfig::Bottom;
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&cfg));
+    let mut projected = snapshot();
+    projected.tabs.push(ClientShellTab {
+        tab_id: "tab_2".into(),
+        workspace_id: "ws_1".into(),
+        number: 2,
+        label: "two".into(),
+        custom_label: false,
+        zoomed: false,
+        focused: false,
+        agent_status: AgentStatus::Idle,
+    });
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+
+    let desktop = state.layout(106, 30);
+    assert_eq!(desktop.tab_bar.height, 0);
+    assert_eq!(desktop.pane_surface.height, 30);
+    assert_eq!(
+        ClientShellConfig::from_config(&cfg)
+            .initial_surface_size(106, 30)
+            .rows,
+        30
+    );
+
+    state.mode = ClientShellMode::Prefix;
+    let frame = state.compose(106, 30).expect("hidden tab bar frame");
+    assert!(state.hits.tabs.is_empty());
+    assert!(state.hits.new_tab.is_empty());
+    let bottom_row: String = frame.cells[29 * 106..30 * 106]
+        .iter()
+        .map(|cell| cell.symbol.as_str())
+        .collect();
+    assert!(bottom_row.contains("PREFIX"));
+
+    let mobile = state.layout(44, 30);
+    assert_eq!(mobile.mobile_header.height, 2);
+    assert_eq!(mobile.pane_surface.height, 28);
+}
+
+#[test]
+fn toggle_tab_bar_keybind_toggles_visibility_persists_and_overrides_single_tab_rule() {
+    let path = std::env::temp_dir().join(format!(
+        "herdr-toggle-tab-bar-prefs-{}.json",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+
+    let cfg: Config = toml::from_str(
+        r#"
+[keys]
+toggle_tab_bar = "prefix+t"
+[ui]
+hide_tab_bar_when_single_tab = true
+"#,
+    )
+    .expect("parse toggle_tab_bar config");
+
+    let mut state = ClientShellState::new(
+        ClientShellConfig::from_config(&cfg).with_preferences_path(path.clone()),
+    );
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+
+    // Single tab starts hidden because hide_tab_bar_when_single_tab = true.
+    assert_eq!(state.layout(106, 30).tab_bar.height, 0);
+
+    // First toggle reveals the tab bar even with a single tab.
+    assert!(state.handle_input_bytes(&[0x02]).actions.is_empty());
+    let reveal = state.handle_input_bytes(b"t");
+    assert!(reveal.repaint);
+    assert!(reveal.resize);
+    assert_eq!(state.tab_bar_hidden_override, Some(false));
+    assert_eq!(state.layout(106, 30).tab_bar.height, 1);
+    assert_eq!(state.layout(106, 30).pane_surface.height, 29);
+
+    // Second toggle hides the tab bar and persists the manual preference.
+    assert!(state.handle_input_bytes(&[0x02]).actions.is_empty());
+    let hide = state.handle_input_bytes(b"t");
+    assert!(hide.repaint);
+    assert!(hide.resize);
+    assert_eq!(state.tab_bar_hidden_override, Some(true));
+    assert_eq!(state.layout(106, 30).tab_bar.height, 0);
+    assert_eq!(state.layout(106, 30).pane_surface.height, 30);
+
+    // Stays hidden even when a second tab exists.
+    let mut multi_tab = snapshot();
+    multi_tab.tabs.push(ClientShellTab {
+        tab_id: "tab_2".into(),
+        workspace_id: "ws_1".into(),
+        number: 2,
+        label: "two".into(),
+        custom_label: false,
+        zoomed: false,
+        focused: false,
+        agent_status: AgentStatus::Idle,
+    });
+    state.set_snapshot(Box::new(multi_tab.clone()));
+    assert_eq!(state.layout(106, 30).tab_bar.height, 0);
+
+    // Persisted manual hide survives restart.
+    let reloaded_config = ClientShellConfig::from_config(&cfg).with_preferences_path(path.clone());
+    assert_eq!(reloaded_config.initial_surface_size(106, 30).rows, 30);
+    let mut reloaded = ClientShellState::new(reloaded_config);
+    reloaded.set_snapshot(Box::new(multi_tab));
+    assert_eq!(reloaded.tab_bar_hidden_override, Some(true));
+    assert_eq!(reloaded.layout(106, 30).tab_bar.height, 0);
+
+    std::fs::remove_file(path).expect("remove toggle_tab_bar prefs");
+}

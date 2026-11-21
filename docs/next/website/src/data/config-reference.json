@@ -842,6 +842,12 @@
           "description": "Toggle sidebar collapse."
         },
         {
+          "key": "keys.toggle_tab_bar",
+          "type": "keybinding",
+          "default": "unset",
+          "description": "Toggle desktop tab bar visibility. Unset by default."
+        },
+        {
           "key": "keys.indexed.tabs",
           "type": "string",
           "default": "unset",
@@ -998,6 +1004,12 @@
           "type": "boolean",
           "default": "false",
           "description": "Show agent labels in split pane borders when no manual pane label is set."
+        },
+        {
+          "key": "ui.hide_tab_bar",
+          "type": "boolean",
+          "default": "false",
+          "description": "Always hide the desktop tab row."
         },
         {
           "key": "ui.hide_tab_bar_when_single_tab",

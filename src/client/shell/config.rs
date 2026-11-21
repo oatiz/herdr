@@ -84,6 +84,7 @@ impl ClientShellState {
             sidebar_collapsed: self
                 .sidebar_collapsed_manual
                 .then_some(self.sidebar_collapsed),
+            tab_bar_hidden: self.tab_bar_hidden_override,
             agent_panel_sort: self
                 .agent_panel_sort_manual
                 .then_some(self.config.agent_panel_sort),
@@ -100,6 +101,7 @@ impl ClientShellState {
         match crate::config::load_live_config() {
             Ok(loaded) => {
                 let agent_panel_sort = self.config.agent_panel_sort;
+                let previous_hide_tab_bar = self.config.hide_tab_bar;
                 let diagnostics = self.config.apply_live_config(
                     &loaded.config,
                     &loaded.diagnostics,
@@ -108,6 +110,9 @@ impl ClientShellState {
                 self.refresh_host_palette();
                 if !self.sidebar_width_manual {
                     self.sidebar_width = self.config.sidebar_width;
+                }
+                if self.config.hide_tab_bar != previous_hide_tab_bar {
+                    self.tab_bar_hidden_override = None;
                 }
                 if self.agent_panel_sort_manual {
                     self.config.agent_panel_sort = agent_panel_sort;
@@ -143,6 +148,7 @@ impl ClientShellConfig {
             sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
             mobile_width_threshold: config.ui.mobile_width_threshold,
             tab_bar_position: config.ui.tab_bar_position,
+            hide_tab_bar: config.ui.hide_tab_bar,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
             spaces: config.ui.sidebar.spaces.clone(),
             agents: config.ui.sidebar.agents.clone(),
@@ -370,6 +376,7 @@ impl ClientShellConfig {
                 self.sidebar_collapsed_mode = ui.sidebar_collapsed_mode;
                 self.mobile_width_threshold = ui.mobile_width_threshold;
                 self.tab_bar_position = ui.tab_bar_position;
+                self.hide_tab_bar = ui.hide_tab_bar;
                 self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
                 self.spaces = ui.sidebar.spaces.clone();
                 self.agents = ui.sidebar.agents.clone();
@@ -405,6 +412,21 @@ impl ClientShellConfig {
         diagnostics
     }
 
+    pub(super) fn shows_tab_bar(
+        &self,
+        rows: u16,
+        tab_count: usize,
+        tab_bar_hidden_override: Option<bool>,
+    ) -> bool {
+        if rows <= 1 {
+            return false;
+        }
+        match tab_bar_hidden_override {
+            Some(hidden) => !hidden,
+            None => !(self.hide_tab_bar || self.hide_tab_bar_when_single_tab && tab_count == 1),
+        }
+    }
+
     pub(super) fn layout(
         &self,
         cols: u16,
@@ -412,6 +434,7 @@ impl ClientShellConfig {
         sidebar_collapsed: bool,
         tab_count: usize,
         sidebar_width: u16,
+        tab_bar_hidden_override: Option<bool>,
     ) -> ClientShellLayout {
         if cols <= self.mobile_width_threshold {
             let header_height = rows.min(2);
@@ -438,7 +461,7 @@ impl ClientShellConfig {
         }
         .min(cols.saturating_sub(1));
         let main = Rect::new(sidebar_width, 0, cols.saturating_sub(sidebar_width), rows);
-        let show_tab_bar = rows > 1 && !(self.hide_tab_bar_when_single_tab && tab_count == 1);
+        let show_tab_bar = self.shows_tab_bar(rows, tab_count, tab_bar_hidden_override);
         let tab_height = u16::from(show_tab_bar);
         let (tab_bar, pane_surface) = match self.tab_bar_position {
             TabBarPositionConfig::Top => (
@@ -483,7 +506,14 @@ impl ClientShellConfig {
             .unwrap_or(self.sidebar_width)
             .clamp(min_width, max_width);
         let surface = self
-            .layout(cols, rows, sidebar_collapsed, 0, sidebar_width)
+            .layout(
+                cols,
+                rows,
+                sidebar_collapsed,
+                0,
+                sidebar_width,
+                self.preferences.tab_bar_hidden,
+            )
             .pane_surface;
         ClientSurfaceSize {
             cols: surface.width.max(1),
@@ -504,6 +534,7 @@ mod tests {
         let mut next = Config::default();
         next.ui.sidebar_width = 31;
         next.ui.tab_bar_position = TabBarPositionConfig::Bottom;
+        next.ui.hide_tab_bar = true;
         next.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
         next.ui.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
         next.ui.sidebar.agents = toml::from_str("rows = [[{ token = 'machine', rules = [{ equals = 'Local', bold = true }] }]]\nrow_gap = 2").unwrap();
@@ -514,6 +545,7 @@ mod tests {
         assert!(diagnostics.is_empty());
         assert_eq!(shell.sidebar_width, 31);
         assert_eq!(shell.tab_bar_position, TabBarPositionConfig::Bottom);
+        assert!(shell.hide_tab_bar);
         assert_eq!(
             shell.agent_panel_sort,
             crate::config::AgentPanelSortConfig::Priority
@@ -555,6 +587,7 @@ mod tests {
             preferences::ClientChromePreferences {
                 sidebar_width: Some(31),
                 sidebar_collapsed: Some(true),
+                tab_bar_hidden: Some(true),
                 ..preferences::ClientChromePreferences::default()
             },
         )
@@ -564,6 +597,7 @@ mod tests {
         let initial = config.initial_surface_size(100, 30);
         let state = ClientShellState::new(config);
         assert_eq!(initial, state.surface_size(100, 30));
+        assert_eq!(initial.rows, 30);
         std::fs::remove_file(path).expect("remove endpoint chrome");
     }
 

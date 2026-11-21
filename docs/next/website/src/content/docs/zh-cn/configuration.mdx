@@ -311,6 +311,8 @@ text = "#cdd6f4"
 
 在 `[ui]` 下设置 `tab_bar_position = "bottom"`，可将桌面标签栏放到终端窗格下方。Prefix、Navigate、Copy 和 Resize 模式栏会在显示期间临时替换底部标签栏。默认值为 `"top"`。
 
+在 `[ui]` 下设置 `hide_tab_bar = true` 可始终隐藏桌面标签栏（不受标签数量限制），也可以配置 `keys.toggle_tab_bar` 在运行时随时切换显示或隐藏。
+
 可在标签栏右侧配置一个类似 tmux 的有序状态区：
 
 ```toml

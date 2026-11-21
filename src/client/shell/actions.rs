@@ -19,6 +19,20 @@ impl ClientShellState {
                 outcome.resize = true;
                 self.persist_chrome_preferences(outcome);
             }
+            crate::input::KeybindMatch::Action(crate::input::KeybindAction::ToggleTabBar) => {
+                let currently_visible = self.config.shows_tab_bar(
+                    2,
+                    self.focused_tab_count(),
+                    self.tab_bar_hidden_override,
+                );
+                self.tab_bar_hidden_override = Some(currently_visible);
+                self.reveal_focused_tab = !currently_visible;
+                self.tab_press = None;
+                self.invalidate_pane_surface();
+                outcome.repaint = true;
+                outcome.resize = true;
+                self.persist_chrome_preferences(outcome);
+            }
             crate::input::KeybindMatch::Action(action) => {
                 if self.workspace_preview_action_blocked()
                     && matches!(
